@@ -1,16 +1,7 @@
 """DataUpdateCoordinator for Effira OPTi.
 
-Responsibilities:
-- Auth (API key → access token)
-- Verifying connectivity on each poll
-- Providing async_action() and async_clear_plan() for HA services to call
-
-Plan logic, price sensors, solar sensors — all belong in HA blueprints/automations,
-not here. This coordinator is intentionally thin.
-
-TODO: replace auth verification with a real status GET once Kenny confirms the endpoint.
-TODO: replace _submit_action with a direct override endpoint if one exists.
-TODO (Kenny): update EFFIRA_BASE to production URL.
+Polls currentStatus, referencetemperature and plan/manual every 5 minutes.
+Provides async_action() and async_clear_plan() for HA services to call.
 """
 import logging
 from datetime import datetime, timezone, timedelta
@@ -62,12 +53,23 @@ class EffiraCoordinator(DataUpdateCoordinator):
 
     # ── API calls ─────────────────────────────────────────────────────────────
 
-    def _submit_action(self, asset_id, action):
-        """Submit action for the next 15-min slot.
+    def _get(self, token, path):
+        r = requests.get(
+            f"{EFFIRA_BASE}/api/v1{path}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        return r.json() if r.content else None
 
-        Uses plan/manual with a single period until we know if a simpler
-        immediate-command endpoint exists (pending Kenny's answer).
-        """
+    def _fetch_all(self, asset_id):
+        token = self._effira_token()
+        status = self._get(token, f"/assets/{asset_id}/currentStatus")
+        ref_temp = self._get(token, f"/assets/{asset_id}/referencetemperature")
+        manual_plan = self._get(token, f"/assets/{asset_id}/plan/manual")
+        return status, ref_temp, manual_plan
+
+    def _submit_action(self, asset_id, action):
         token = self._effira_token()
         now = datetime.now(timezone.utc)
         start = self._quantize_up(now)
@@ -84,10 +86,6 @@ class EffiraCoordinator(DataUpdateCoordinator):
         r.raise_for_status()
 
     def _clear_plan(self, asset_id):
-        """Clear manual plan — sends empty periods to return to Effira auto mode.
-
-        Unconfirmed: pending Kenny's answer on whether this is the correct approach.
-        """
         token = self._effira_token()
         r = requests.post(
             f"{EFFIRA_BASE}/api/v1/assets/{asset_id}/plan/manual",
@@ -100,37 +98,64 @@ class EffiraCoordinator(DataUpdateCoordinator):
         )
         r.raise_for_status()
 
-    # ── Service entrypoints (called from __init__.py) ─────────────────────────
+    # ── Service entrypoints ───────────────────────────────────────────────────
 
     async def async_action(self, action):
-        """Submit a single-slot action. Called by effira.boost / stop / normal services."""
         asset_id = self.config_entry.data["asset_id"]
         await self.hass.async_add_executor_job(self._submit_action, asset_id, action)
         self.async_set_updated_data({
             **(self.data or {}),
-            "last_action": action,
+            "manual_action": action,
             "last_action_at": datetime.now(timezone.utc).isoformat(),
         })
 
     async def async_clear_plan(self):
-        """Clear the manual plan. Called by effira.clear_plan service."""
         asset_id = self.config_entry.data["asset_id"]
         await self.hass.async_add_executor_job(self._clear_plan, asset_id)
         self.async_set_updated_data({
             **(self.data or {}),
-            "last_action": "auto",
+            "manual_action": None,
             "last_action_at": datetime.now(timezone.utc).isoformat(),
         })
 
     # ── Poll ──────────────────────────────────────────────────────────────────
 
     async def _async_update_data(self):
-        """Verify auth works. TODO: replace with status GET once endpoint is known."""
+        asset_id = self.config_entry.data["asset_id"]
         try:
-            await self.hass.async_add_executor_job(self._effira_token)
+            status, ref_temp, manual_plan = await self.hass.async_add_executor_job(
+                self._fetch_all, asset_id
+            )
+
+            online = None
+            last_action = None
+            last_action_source = None
+            if status:
+                online_obj = status.get("online") or {}
+                online = online_obj.get("value")
+                action_obj = status.get("lastAction") or {}
+                last_action = action_obj.get("state")
+                prio = action_obj.get("prio") or {}
+                last_action_source = prio.get("type")
+
+            ref_temp_value = None
+            if ref_temp:
+                ref_temp_value = ref_temp.get("value")
+
+            active_periods = []
+            if manual_plan:
+                active_periods = manual_plan.get("rawPeriods") or []
+
             return {
-                **(self.data or {}),
                 "connected": True,
+                "online": online,
+                "last_action": last_action,
+                "last_action_source": last_action_source,
+                "ref_temp": ref_temp_value,
+                "active_periods": active_periods,
+                "manual_action": (self.data or {}).get("manual_action"),
+                "last_action_at": (self.data or {}).get("last_action_at"),
             }
+
         except Exception as err:
-            raise UpdateFailed(f"Effira auth failed: {err}") from err
+            raise UpdateFailed(f"Effira API error: {err}") from err

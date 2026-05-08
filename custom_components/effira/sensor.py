@@ -1,5 +1,5 @@
 """Sensor entities for Effira OPTi."""
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
@@ -9,6 +9,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     coordinator = hass.data[DOMAIN][config_entry.entry_id]
     async_add_entities([
         EffiraStatusSensor(coordinator, config_entry),
+        EffiraOnlineSensor(coordinator, config_entry),
+        EffiraTempSensor(coordinator, config_entry),
+        EffiraPlanSensor(coordinator, config_entry),
     ])
 
 
@@ -28,7 +31,7 @@ class EffiraBaseSensor(CoordinatorEntity, SensorEntity):
 
 
 class EffiraStatusSensor(EffiraBaseSensor):
-    """Current override mode — 'auto' means no manual override active."""
+    """Last action reported by the heat pump (idle / boost / stop)."""
 
     @property
     def unique_id(self):
@@ -36,13 +39,13 @@ class EffiraStatusSensor(EffiraBaseSensor):
 
     @property
     def name(self):
-        return "Effira Status"
+        return "Effira Last Action"
 
     @property
     def state(self):
         if self.coordinator.data is None:
             return None
-        return self.coordinator.data.get("last_action", "auto")
+        return self.coordinator.data.get("last_action")
 
     @property
     def extra_state_attributes(self):
@@ -50,6 +53,80 @@ class EffiraStatusSensor(EffiraBaseSensor):
             return {}
         data = self.coordinator.data
         return {
-            "connected": data.get("connected", False),
+            "source": data.get("last_action_source"),
+            "manual_action": data.get("manual_action"),
             "last_action_at": data.get("last_action_at"),
         }
+
+
+class EffiraOnlineSensor(EffiraBaseSensor):
+    """Whether the heat pump is online according to the Effira API."""
+
+    @property
+    def unique_id(self):
+        return f"{self._config_entry.entry_id}_online"
+
+    @property
+    def name(self):
+        return "Effira Online"
+
+    @property
+    def state(self):
+        if self.coordinator.data is None:
+            return None
+        online = self.coordinator.data.get("online")
+        if online is True:
+            return "online"
+        if online is False:
+            return "offline"
+        return None
+
+
+class EffiraTempSensor(EffiraBaseSensor):
+    """Reference temperature as reported by the Effira system."""
+
+    @property
+    def unique_id(self):
+        return f"{self._config_entry.entry_id}_ref_temp"
+
+    @property
+    def name(self):
+        return "Effira Reference Temperature"
+
+    @property
+    def native_unit_of_measurement(self):
+        return "°C"
+
+    @property
+    def device_class(self):
+        return SensorDeviceClass.TEMPERATURE
+
+    @property
+    def state(self):
+        if self.coordinator.data is None:
+            return None
+        return self.coordinator.data.get("ref_temp")
+
+
+class EffiraPlanSensor(EffiraBaseSensor):
+    """Number of active manual plan periods, with the periods as attributes."""
+
+    @property
+    def unique_id(self):
+        return f"{self._config_entry.entry_id}_plan"
+
+    @property
+    def name(self):
+        return "Effira Active Plan Periods"
+
+    @property
+    def state(self):
+        if self.coordinator.data is None:
+            return None
+        return len(self.coordinator.data.get("active_periods", []))
+
+    @property
+    def extra_state_attributes(self):
+        if self.coordinator.data is None:
+            return {}
+        return {"periods": self.coordinator.data.get("active_periods", [])}
