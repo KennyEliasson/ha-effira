@@ -1,8 +1,8 @@
 """Effira OPTi integration for Home Assistant."""
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
 
-from .const import DOMAIN
+from .const import DOMAIN, ACTION_BOOST, ACTION_STOP, ACTION_NORMAL
 from .coordinator import EffiraCoordinator
 
 PLATFORMS = ["sensor"]
@@ -13,6 +13,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = EffiraCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     hass.data[DOMAIN][entry.entry_id] = coordinator
+
+    async def handle_boost(call: ServiceCall):
+        await coordinator.async_action(ACTION_BOOST)
+
+    async def handle_stop(call: ServiceCall):
+        await coordinator.async_action(ACTION_STOP)
+
+    async def handle_normal(call: ServiceCall):
+        await coordinator.async_action(ACTION_NORMAL)
+
+    async def handle_clear_plan(call: ServiceCall):
+        await coordinator.async_clear_plan()
+
+    hass.services.register(DOMAIN, "boost", handle_boost)
+    hass.services.register(DOMAIN, "stop", handle_stop)
+    hass.services.register(DOMAIN, "normal", handle_normal)
+    hass.services.register(DOMAIN, "clear_plan", handle_clear_plan)
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
