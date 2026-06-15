@@ -1,202 +1,126 @@
-"""Config flow for Effira OPTi.
+"""Config flow for Effira OPTi."""
 
-Two authentication paths in one flow:
+from __future__ import annotations
 
-  1. OAuth (preferred) — "Log in with Effira account"
-     Redirects to Cognito, fetches the user's assets, creates a
-     long-lived API key automatically. No copy-pasting credentials.
-
-     BLOCKED until Kenny registers this redirect URI in the Cognito
-     app client (4fmn375d1uhammpa9j3rld9kum):
-       https://my.home-assistant.io/redirect/oauth
-
-  2. Manual API key — "Enter API key"
-     User pastes key_id + key_secret + asset_id. Works today.
-
-Cognito details (test environment):
-  authorize: https://easyserv-enduser-unstable.auth.eu-north-1.amazoncognito.com/oauth2/authorize
-  token:     https://easyserv-enduser-unstable.auth.eu-north-1.amazoncognito.com/oauth2/token
-  client_id: 4fmn375d1uhammpa9j3rld9kum
-  scope:     enduser/access
-"""
 import logging
 
-import voluptuous as vol
 import requests
+import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.helpers import config_entry_oauth2_flow
 
+from .api import fetch_access_token_from_credentials, fetch_assets, format_asset_label
 from .const import (
-    DOMAIN,
+    CONF_ADDRESS,
+    CONF_ASSET_ID,
+    CONF_ASSET_NAME,
+    CONF_CLIENT_ID,
     CONF_KEY_ID,
     CONF_KEY_SECRET,
-    CONF_ASSET_ID,
-    EFFIRA_BASE,
-    EFFIRA_APP_BASE,
-    COGNITO_SCOPE,
+    CONF_SENSOR_ID,
+    DOMAIN,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class EffiraConfigFlow(
-    config_entry_oauth2_flow.AbstractOAuth2FlowHandler,
-    domain=DOMAIN,
-):
-    """Single config flow supporting both OAuth and manual API key entry."""
+class EffiraConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Config flow for API-key-based Effira setup."""
 
     VERSION = 1
-    DOMAIN = DOMAIN
 
-    def __init__(self):
-        super().__init__()
-        self._oauth_token = None
-        self._assets = []
-
-    @property
-    def logger(self):
-        return _LOGGER
-
-    @property
-    def extra_authorize_data(self):
-        return {"scope": COGNITO_SCOPE}
-
-    # ── Entry point: choose auth method ───────────────────────────────────────
+    def __init__(self) -> None:
+        self._key_id: str | None = None
+        self._key_secret: str | None = None
+        self._assets: list[dict] = []
 
     async def async_step_user(self, user_input=None):
-        if user_input is not None:
-            if user_input["auth_type"] == "oauth":
-                # Hand off to AbstractOAuth2FlowHandler's implementation picker
-                return await self.async_step_pick_implementation()
-            else:
-                return await self.async_step_manual()
-
-        return self.async_show_form(
-            step_id="user",
-            data_schema=vol.Schema({
-                vol.Required("auth_type", default="manual"): vol.In({
-                    "oauth": "Log in with Effira account",
-                    "manual": "Enter API key manually",
-                }),
-            }),
-        )
-
-    # ── Manual path ───────────────────────────────────────────────────────────
-
-    async def async_step_manual(self, user_input=None):
+        """Handle the initial setup step."""
         errors = {}
 
         if user_input is not None:
-            await self.async_set_unique_id(user_input[CONF_ASSET_ID])
-            self._abort_if_unique_id_configured()
-            return self.async_create_entry(
-                title=f"Effira OPTi ({user_input[CONF_ASSET_ID][:8]}...)",
-                data=user_input,
-            )
+            key_id = user_input[CONF_KEY_ID].strip()
+            key_secret = user_input[CONF_KEY_SECRET].strip()
+            try:
+                assets = await self.hass.async_add_executor_job(
+                    _fetch_assets_from_api_key, key_id, key_secret
+                )
+            except requests.HTTPError as err:
+                _LOGGER.warning("Effira API key validation failed: %s", err)
+                errors["base"] = "invalid_auth"
+            except Exception as err:
+                _LOGGER.exception("Failed to fetch Effira assets: %s", err)
+                errors["base"] = "cannot_fetch_assets"
+            else:
+                if not assets:
+                    return self.async_abort(reason="no_assets")
+
+                self._key_id = key_id
+                self._key_secret = key_secret
+                self._assets = assets
+
+                if len(assets) == 1:
+                    return await self._create_entry_for_asset(assets[0])
+
+                return await self.async_step_pick_asset()
 
         return self.async_show_form(
-            step_id="manual",
-            data_schema=vol.Schema({
-                vol.Required(CONF_KEY_ID): str,
-                vol.Required(CONF_KEY_SECRET): str,
-                vol.Required(CONF_ASSET_ID): str,
-            }),
+            step_id="user",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_KEY_ID): str,
+                    vol.Required(CONF_KEY_SECRET): str,
+                }
+            ),
             errors=errors,
         )
 
-    # ── OAuth path ────────────────────────────────────────────────────────────
-
-    async def async_oauth_create_entry(self, data):
-        """Called by AbstractOAuth2FlowHandler after the OAuth dance completes."""
-        self._oauth_token = data["token"]["access_token"]
-
-        try:
-            assets = await self.hass.async_add_executor_job(
-                _fetch_assets, self._oauth_token
-            )
-        except Exception as err:
-            _LOGGER.error("Failed to fetch assets after OAuth: %s", err)
-            return self.async_abort(reason="cannot_fetch_assets")
-
-        if not assets:
-            return self.async_abort(reason="no_assets")
-
-        if len(assets) == 1:
-            return await self._create_entry_for_asset(assets[0])
-
-        self._assets = assets
-        return await self.async_step_pick_asset()
-
     async def async_step_pick_asset(self, user_input=None):
+        """Let the user choose which asset to configure."""
         if user_input is not None:
             asset = next(
-                (a for a in self._assets if a["assetId"] == user_input[CONF_ASSET_ID]),
+                (asset for asset in self._assets if asset["assetId"] == user_input[CONF_ASSET_ID]),
                 None,
             )
-            if asset:
+            if asset is not None:
                 return await self._create_entry_for_asset(asset)
 
-        options = {
-            a["assetId"]: (
-                a.get("address", {}).get("address1") or a["assetId"]
-            )
-            for a in self._assets
-        }
+        options = {asset["assetId"]: format_asset_label(asset) for asset in self._assets}
         return self.async_show_form(
             step_id="pick_asset",
-            data_schema=vol.Schema({
-                vol.Required(CONF_ASSET_ID): vol.In(options),
-            }),
+            data_schema=vol.Schema({vol.Required(CONF_ASSET_ID): vol.In(options)}),
         )
 
     async def _create_entry_for_asset(self, asset):
+        """Create a config entry for the selected asset."""
         asset_id = asset["assetId"]
-        try:
-            key_id, key_secret = await self.hass.async_add_executor_job(
-                _create_api_key, self._oauth_token, asset_id
-            )
-        except Exception as err:
-            _LOGGER.error("Failed to create API key for asset %s: %s", asset_id, err)
-            return self.async_abort(reason="cannot_create_api_key")
-
         await self.async_set_unique_id(asset_id)
         self._abort_if_unique_id_configured()
 
-        address = asset.get("address", {})
-        title = address.get("address1") or f"Effira OPTi ({asset_id[:8]}...)"
-
+        title = format_asset_label(asset)
         return self.async_create_entry(
             title=title,
-            data={
-                CONF_KEY_ID: key_id,
-                CONF_KEY_SECRET: key_secret,
-                CONF_ASSET_ID: asset_id,
-            },
+            data=_build_entry_data(asset, self._key_id, self._key_secret),
         )
 
 
-# ── Blocking helpers (run in executor) ───────────────────────────────────────
-
-def _fetch_assets(access_token):
-    r = requests.get(
-        f"{EFFIRA_BASE}/api/v1/assets",
-        headers={"Authorization": f"Bearer {access_token}"},
-        timeout=10,
-    )
-    r.raise_for_status()
-    return r.json()
+def _fetch_assets_from_api_key(key_id: str, key_secret: str) -> list[dict]:
+    """Validate an API key and return available assets."""
+    access_token = fetch_access_token_from_credentials(key_id, key_secret)
+    return fetch_assets(access_token)
 
 
-def _create_api_key(access_token, asset_id):
-    r = requests.post(
-        f"{EFFIRA_APP_BASE}/me/api-keys",
-        headers={
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json",
-        },
-        json={"name": "home-assistant", "assetId": asset_id},
-        timeout=10,
-    )
-    r.raise_for_status()
-    data = r.json()
-    return data["keyId"], data["secret"]
+def _build_entry_data(asset: dict, key_id: str, key_secret: str) -> dict:
+    """Build config entry data for the selected asset."""
+    address = asset.get("address") or {}
+    sensors = asset.get("sensors") or []
+    first_sensor = sensors[0] if sensors else {}
+
+    return {
+        CONF_KEY_ID: key_id,
+        CONF_KEY_SECRET: key_secret,
+        CONF_ASSET_ID: asset["assetId"],
+        CONF_ASSET_NAME: asset.get("name"),
+        CONF_ADDRESS: address,
+        CONF_CLIENT_ID: asset.get("clientId"),
+        CONF_SENSOR_ID: first_sensor.get("sensorId"),
+    }

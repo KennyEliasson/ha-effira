@@ -3,23 +3,14 @@
     "step": {
       "user": {
         "title": "Connect to Effira OPTi",
-        "description": "Choose how to connect.",
+        "description": "Enter your Effira API key details. After validation, you can choose which installation to control.",
         "data": {
-          "auth_type": "Authentication method"
-        }
-      },
-      "manual": {
-        "title": "Enter API credentials",
-        "description": "Paste in your Effira API key details. See the README for how to create one.",
-        "data": {
-          "key_id": "API Key ID",
-          "key_secret": "API Key Secret",
-          "asset_id": "Asset ID"
+          "key_id": "API key",
+          "key_secret": "API secret"
         },
         "data_description": {
           "key_id": "The keyId returned when you created your API key.",
-          "key_secret": "The secret returned when you created your API key.",
-          "asset_id": "Your Effira OPTi installation's asset ID."
+          "key_secret": "The secret returned when you created your API key."
         }
       },
       "pick_asset": {
@@ -30,11 +21,13 @@
         }
       }
     },
+    "error": {
+      "invalid_auth": "The API key could not be validated.",
+      "cannot_fetch_assets": "Could not fetch your installations from Effira. Please try again."
+    },
     "abort": {
       "already_configured": "This Effira OPTi asset is already configured.",
-      "cannot_fetch_assets": "Could not fetch your installations from Effira. Please try again.",
-      "no_assets": "No Effira OPTi installations found for your account.",
-      "cannot_create_api_key": "Could not create an API key. Please try the manual method."
+      "no_assets": "No Effira OPTi installations found for your account."
     }
   }
 }

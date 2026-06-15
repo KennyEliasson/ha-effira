@@ -1,0 +1,74 @@
+boost:
+  name: Boost
+  description: Set the Effira system to boost mode
+
+stop:
+  name: Stop
+  description: Stop the current Effira operation.
+
+normal:
+  name: Normal
+  description: Return the Effira system to normal mode.
+
+clear_plan:
+  name: Clear plan
+  description: Clear the current Effira plan.
+
+set_manual_plan:
+  name: Set manual plan
+  description: Schedule a manual Effira action for a specific time period.
+  fields:
+    action:
+      name: Action
+      description: The Effira action to apply during the period.
+      required: true
+      selector:
+        select:
+          options:
+            - boost
+            - normal
+            - stop
+    start:
+      name: Start time
+      description: UTC start time aligned to a 15-minute boundary.
+      required: true
+      example: "2026-06-15T12:15:00+00:00"
+      selector:
+        datetime:
+    end:
+      name: End time
+      description: UTC end time aligned to a 15-minute boundary.
+      required: true
+      example: "2026-06-15T13:15:00+00:00"
+      selector:
+        datetime:
+
+set_manual_plan_from_now:
+  name: Set manual plan from now
+  description: Schedule a manual Effira action starting from the next 15-minute boundary.
+  fields:
+    action:
+      name: Action
+      description: The Effira action to apply during the period.
+      required: true
+      selector:
+        select:
+          options:
+            - boost
+            - normal
+            - stop
+    duration_minutes:
+      name: Duration
+      description: Duration in minutes. Must be divisible by 15.
+      required: true
+      default: 15
+      selector:
+        number:
+          min: 15
+          max: 1440
+          step: 15
+          unit_of_measurement: min
+
+refresh:
+  name: Refresh
+  description: Refresh the latest data for the configured Effira asset.

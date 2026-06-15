@@ -1,5 +1,7 @@
 # ha-effira
 
+![Effira OPTi](assets/logo.png)
+
 Home Assistant integration for [Effira OPTi](https://effiraenergy.com) — connects your heat pump to HA and lets you control it with your own price and solar automations.
 
 > **Status:** Early beta. Requires access to Effira's test environment and a manually created API key.
@@ -11,7 +13,7 @@ Home Assistant integration for [Effira OPTi](https://effiraenergy.com) — conne
 
 The integration has two parts:
 
-**1. The integration** — handles authentication and exposes the heat pump as an HA device with four services:
+**1. The integration** — handles authentication and exposes the heat pump as an HA device with several services:
 
 | Service | What it does |
 |---|---|
@@ -19,10 +21,15 @@ The integration has two parts:
 | `effira.stop` | Stop the heat pump now |
 | `effira.normal` | Set to normal mode |
 | `effira.clear_plan` | Clear any manual override, return to Effira auto mode |
+| `effira.set_manual_plan` | Schedule a manual action for a specific time period |
+| `effira.set_manual_plan_from_now` | Schedule a manual action from the next 15-minute boundary |
+| `effira.refresh` | Refresh the latest Effira data immediately |
 
 **2. The blueprint** — an optional automation template that calls those services every 15 minutes based on your electricity price and/or solar export. You point it at whatever sensors you have — NordPool, Tibber, GoodWe, Fronius, anything.
 
 The integration has no built-in opinions about price thresholds, solar thresholds, or tariff zones. All of that lives in your automation.
+
+![Effira dashboard](assets/dashboard.png)
 
 ---
 
@@ -40,37 +47,9 @@ The integration has no built-in opinions about price thresholds, solar threshold
 
 ### 1. Get an Effira API key
 
-**a)** Get an authorisation code via [OAuth Debugger](https://oauthdebugger.com):
+Use your regular credentials and login to https://developers.enerflex.cloud to create new API keys for your asset
 
-| Field | Value |
-|---|---|
-| Authorize URI | `https://easyserv-enduser-unstable.auth.eu-north-1.amazoncognito.com/oauth2/authorize` |
-| Client ID | `4fmn375d1uhammpa9j3rld9kum` |
-| Redirect URI | `https://oauthdebugger.com/debug` |
-| Scope | `enduser/access` |
-| Response type | `code` |
-| Response mode | `form_post` |
-
-Log in with your Effira account and copy the `code` from the result page.
-
-**b)** Exchange the code for an access token:
-
-```bash
-curl -X POST "https://easyserv-enduser-unstable.auth.eu-north-1.amazoncognito.com/oauth2/token" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=authorization_code&code=<CODE>&client_id=4fmn375d1uhammpa9j3rld9kum&redirect_uri=https://oauthdebugger.com/debug"
-```
-
-**c)** Create an API key:
-
-```bash
-curl -X POST "https://unstable-app.enerflex.cloud/api/app/v1/me/api-keys" \
-  -H "Authorization: Bearer <ACCESS_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "ha-integration", "assetId": "<YOUR_ASSET_ID>"}'
-```
-
-Save the `keyId` and `secret` — you'll need them in the next step.
+Save the `keyId` and `secret` for Home Assistant setup.
 
 ---
 
@@ -84,17 +63,17 @@ Save the `keyId` and `secret` — you'll need them in the next step.
 ```bash
 mkdir -p /config/custom_components/effira
 curl -o /config/custom_components/effira/__init__.py \
-  https://raw.githubusercontent.com/henrikharplinger-arndegothia/ha-effira/main/custom_components/effira/__init__.py
+  https://raw.githubusercontent.com/KennyEliasson/ha-effira/main/custom_components/effira/__init__.py
 curl -o /config/custom_components/effira/manifest.json \
-  https://raw.githubusercontent.com/henrikharplinger-arndegothia/ha-effira/main/custom_components/effira/manifest.json
+  https://raw.githubusercontent.com/KennyEliasson/ha-effira/main/custom_components/effira/manifest.json
 curl -o /config/custom_components/effira/const.py \
-  https://raw.githubusercontent.com/henrikharplinger-arndegothia/ha-effira/main/custom_components/effira/const.py
+  https://raw.githubusercontent.com/KennyEliasson/ha-effira/main/custom_components/effira/const.py
 curl -o /config/custom_components/effira/coordinator.py \
-  https://raw.githubusercontent.com/henrikharplinger-arndegothia/ha-effira/main/custom_components/effira/coordinator.py
+  https://raw.githubusercontent.com/KennyEliasson/ha-effira/main/custom_components/effira/coordinator.py
 curl -o /config/custom_components/effira/config_flow.py \
-  https://raw.githubusercontent.com/henrikharplinger-arndegothia/ha-effira/main/custom_components/effira/config_flow.py
+  https://raw.githubusercontent.com/KennyEliasson/ha-effira/main/custom_components/effira/config_flow.py
 curl -o /config/custom_components/effira/sensor.py \
-  https://raw.githubusercontent.com/henrikharplinger-arndegothia/ha-effira/main/custom_components/effira/sensor.py
+  https://raw.githubusercontent.com/KennyEliasson/ha-effira/main/custom_components/effira/sensor.py
 ```
 
 Then restart Home Assistant.
@@ -105,7 +84,13 @@ Then restart Home Assistant.
 
 **Settings → Devices & Services → Add Integration → Effira OPTi**
 
-Enter your Key ID, Key Secret, and Asset ID. HA will create an **Effira OPTi** device with a status sensor showing the current override state (`auto`, `boost`, or `stop`).
+Enter your API key and API secret. The integration validates them, calls `/assets`, and then lets you choose the Effira installation to control using its available name/address data. HA then creates an **Effira OPTi** device with a status sensor showing the current override state (`auto`, `boost`, or `stop`).
+
+It also exposes:
+- current planned control with reason, mode and priority
+- current temperature
+- daily heat pump consumption
+- previous hour heat pump consumption
 
 ---
 
@@ -154,8 +139,6 @@ service: effira.clear_plan
 
 ## Roadmap
 
-- [ ] OAuth login flow (no manual API key setup)
-- [ ] Status sensor backed by a real API poll endpoint
 - [ ] Direct override endpoint (currently uses plan submission)
 - [ ] Production environment support
 - [ ] HACS default repository listing
