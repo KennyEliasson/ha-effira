@@ -2,42 +2,31 @@
 
 ![Effira OPTi](assets/logo.png)
 
-Home Assistant integration for [Effira OPTi](https://effiraenergy.com) — connects your heat pump to HA and lets you control it with your own price and solar automations.
+Community Home Assistant integration for [Effira OPTi](https://effiraenergy.com).
 
-> **Status:** Early beta. Requires access to Effira's test environment and a manually created API key.
-> OAuth login (no API key needed) is planned once the production environment is ready.
-
----
-
-## How it works
-
-The integration has two parts:
-
-**1. The integration** — handles authentication and exposes the heat pump as an HA device with several services:
-
-| Service | What it does |
-|---|---|
-| `effira.boost` | Boost the heat pump now |
-| `effira.stop` | Stop the heat pump now |
-| `effira.normal` | Set to normal mode |
-| `effira.clear_plan` | Clear any manual override, return to Effira auto mode |
-| `effira.set_manual_plan` | Schedule a manual action for a specific time period |
-| `effira.set_manual_plan_from_now` | Schedule a manual action from the next 15-minute boundary |
-| `effira.refresh` | Refresh the latest Effira data immediately |
-
-**2. The blueprint** — an optional automation template that calls those services every 15 minutes based on your electricity price and/or solar export. You point it at whatever sensors you have — NordPool, Tibber, GoodWe, Fronius, anything.
-
-The integration has no built-in opinions about price thresholds, solar thresholds, or tariff zones. All of that lives in your automation.
+> **Status:** Early beta. This is an unofficial, community-maintained Home Assistant integration and is not affiliated with or officially supported by Effira.
+> It currently targets Effira's test environment and uses manually created API credentials.
 
 ![Effira dashboard](assets/dashboard.png)
 
 ---
 
-## Prerequisites
+## Features
+
+- Config flow with API key and secret
+- Asset selection during setup
+- Sensors for temperature, online state, planned control, daily consumption and previous hour consumption
+- Services for `boost`, `stop`, `normal`, `clear_plan` and `refresh`
+- Optional manual plan services for scheduled overrides
+- Optional blueprint for price- and solar-driven control
+
+---
+
+## Requirements
 
 - Home Assistant (any recent version)
 - Effira OPTi device, claimed in the Effira app
-- Effira API key (see setup below)
+- Effira API key and secret
 - *(Optional)* An electricity price sensor — NordPool, Tibber, Amber, etc.
 - *(Optional)* A solar/grid power sensor if you want solar-based boosting
 
@@ -45,9 +34,9 @@ The integration has no built-in opinions about price thresholds, solar threshold
 
 ## Setup
 
-### 1. Get an Effira API key
+### 1. Create API credentials
 
-Use your regular credentials and login to https://developers.enerflex.cloud to create new API keys for your asset
+Sign in to `https://developers.enerflex.cloud` and create an API key for your asset.
 
 Save the `keyId` and `secret` for Home Assistant setup.
 
@@ -84,9 +73,9 @@ Then restart Home Assistant.
 
 **Settings → Devices & Services → Add Integration → Effira OPTi**
 
-Enter your API key and API secret. The integration validates them, calls `/assets`, and then lets you choose the Effira installation to control using its available name/address data. HA then creates an **Effira OPTi** device with a status sensor showing the current override state (`auto`, `boost`, or `stop`).
+Enter your API key and API secret. The integration validates them, fetches your assets, and lets you choose which installation to control.
 
-It also exposes:
+The integration exposes:
 - current planned control with reason, mode and priority
 - current temperature
 - daily heat pump consumption
@@ -94,13 +83,13 @@ It also exposes:
 
 ---
 
-### 4. Set up the optimization blueprint (optional)
+### 4. Import the blueprint (optional)
 
 If you want the heat pump to respond automatically to price and solar conditions:
 
 1. **Settings → Automations & Scenes → Blueprints → Import Blueprint**
 2. Paste this URL:
-   `https://raw.githubusercontent.com/henrikharplinger-arndegothia/ha-effira/main/blueprints/effira_optimize.yaml`
+   `https://raw.githubusercontent.com/KennyEliasson/ha-effira/main/blueprints/effira_optimize.yaml`
 3. Click **Create Automation** and configure:
    - Your electricity price sensor
    - Your price threshold
@@ -121,7 +110,7 @@ The automation runs every 15 minutes and calls the appropriate service based on 
 
 ## Using the services directly
 
-You can also call the services manually from **Developer Tools → Services**, or build your own automations:
+You can call the services manually from **Developer Tools → Actions**, or use them in scripts and automations:
 
 ```yaml
 service: effira.boost
@@ -133,6 +122,10 @@ service: effira.stop
 
 ```yaml
 service: effira.clear_plan
+```
+
+```yaml
+service: effira.refresh
 ```
 
 ---
