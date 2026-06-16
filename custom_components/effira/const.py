@@ -1,3 +1,5 @@
+import os
+
 DOMAIN = "effira"
 
 CONF_API_KEY = "api_key"
@@ -9,8 +11,8 @@ CONF_ADDRESS = "address"
 CONF_CLIENT_ID = "client_id"
 CONF_SENSOR_ID = "sensor_id"
 
-EFFIRA_BASE = "https://unstable-app.enerflex.cloud"
-EFFIRA_APP_BASE = "https://unstable-app.enerflex.cloud/api/app/v1"
+DEFAULT_EFFIRA_BASE = "https://app.enerflex.cloud"
+EFFIRA_BASE = os.environ.get("EFFIRA_BASE", DEFAULT_EFFIRA_BASE).rstrip("/")
 
 ACTION_BOOST = "boost"
 ACTION_STOP = "stop"

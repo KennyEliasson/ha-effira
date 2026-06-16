@@ -5,9 +5,6 @@
 Community Home Assistant integration for [Effira OPTi](https://effiraenergy.com).
 
 > **Status:** Early beta. This is an unofficial, community-maintained Home Assistant integration and is not affiliated with or officially supported by Effira.
-> It currently targets Effira's test environment and uses manually created API credentials.
-
-![Effira dashboard](assets/dashboard.png)
 
 ---
 
@@ -40,6 +37,8 @@ Sign in to `https://developers.enerflex.cloud` and create an API key for your as
 
 Save the `keyId` and `secret` for Home Assistant setup.
 
+For development against Effira's unstable environment, set `EFFIRA_BASE=https://unstable-app.enerflex.cloud` in the Home Assistant process environment. Default is production: `https://app.enerflex.cloud`.
+
 ---
 
 ### 2. Install the integration
@@ -69,7 +68,32 @@ Then restart Home Assistant.
 
 ---
 
-### 3. Add the integration
+### 3. Run locally for development
+
+You can run Home Assistant locally in Docker and mount this repository as `/config`:
+
+```bash
+docker run --rm -it \
+  -p 8123:8123 \
+  -v "/Users/kennyeliasson/Code/effira-smart-home-integrations/ha-effira:/config" \
+  ghcr.io/home-assistant/home-assistant:stable
+```
+
+To develop against Effira's unstable environment, add `EFFIRA_BASE`:
+
+```bash
+docker run --rm -it \
+  -p 8123:8123 \
+  -e EFFIRA_BASE="https://unstable-app.enerflex.cloud" \
+  -v "/Users/kennyeliasson/Code/effira-smart-home-integrations/ha-effira:/config" \
+  ghcr.io/home-assistant/home-assistant:stable
+```
+
+Without `EFFIRA_BASE`, the integration uses production: `https://app.enerflex.cloud`.
+
+---
+
+### 4. Add the integration
 
 **Settings → Devices & Services → Add Integration → Effira OPTi**
 
@@ -83,7 +107,7 @@ The integration exposes:
 
 ---
 
-### 4. Import the blueprint (optional)
+### 5. Import the blueprint (optional)
 
 If you want the heat pump to respond automatically to price and solar conditions:
 
@@ -133,7 +157,7 @@ service: effira.refresh
 ## Roadmap
 
 - [ ] Direct override endpoint (currently uses plan submission)
-- [ ] Production environment support
+- [x] Production environment support
 - [ ] HACS default repository listing
 
 ---

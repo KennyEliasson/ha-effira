@@ -28,7 +28,7 @@ from .coordinator import EffiraCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["sensor"]
+PLATFORMS = ["binary_sensor", "sensor"]
 
 SERVICE_TARGET_SCHEMA = vol.Schema({vol.Optional(CONF_ASSET_ID): cv.string})
 SERVICE_SET_MANUAL_PLAN_SCHEMA = SERVICE_TARGET_SCHEMA.extend(
